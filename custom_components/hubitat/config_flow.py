@@ -25,6 +25,7 @@ from .const import (
     H_CONF_DEVICE_LIST,
     H_CONF_DEVICE_TYPE_OVERRIDES,
     H_CONF_DEVICES,
+    H_CONF_SERVER_HOST,
     H_CONF_SERVER_PORT,
     H_CONF_SERVER_SSL_CERT,
     H_CONF_SERVER_SSL_KEY,
@@ -53,6 +54,7 @@ CONFIG_SCHEMA = vol.Schema(
         vol.Required(H_CONF_APP_ID): str,
         vol.Required(CONF_ACCESS_TOKEN): str,
         vol.Optional(H_CONF_SERVER_URL): str,
+        vol.Optional(H_CONF_SERVER_HOST): str,
         vol.Optional(H_CONF_SERVER_PORT): int,
         vol.Optional(H_CONF_SERVER_SSL_CERT): str,
         vol.Optional(H_CONF_SERVER_SSL_KEY): str,
@@ -166,6 +168,7 @@ class HubitatOptionsFlow(OptionsFlow):
                     CONF_HOST: user_input[CONF_HOST],
                     H_CONF_APP_ID: entry.data.get(H_CONF_APP_ID),
                     CONF_ACCESS_TOKEN: entry.data.get(CONF_ACCESS_TOKEN),
+                    H_CONF_SERVER_HOST: user_input.get(H_CONF_SERVER_HOST),
                     H_CONF_SERVER_PORT: user_input.get(H_CONF_SERVER_PORT),
                     H_CONF_SERVER_URL: user_input.get(H_CONF_SERVER_URL),
                     H_CONF_SERVER_SSL_CERT: user_input.get(H_CONF_SERVER_SSL_CERT),
@@ -176,6 +179,7 @@ class HubitatOptionsFlow(OptionsFlow):
                 self.hub = info["hub"]
 
                 self.options[CONF_HOST] = user_input[CONF_HOST]
+                self.options[H_CONF_SERVER_HOST] = user_input.get(H_CONF_SERVER_HOST)
                 self.options[H_CONF_SERVER_PORT] = user_input.get(H_CONF_SERVER_PORT)
                 self.options[H_CONF_SERVER_URL] = user_input.get(H_CONF_SERVER_URL)
                 self.options[H_CONF_SERVER_SSL_CERT] = user_input.get(
@@ -227,6 +231,16 @@ class HubitatOptionsFlow(OptionsFlow):
                             "suggested_value": entry.options.get(
                                 H_CONF_SERVER_URL,
                                 entry.data.get(H_CONF_SERVER_URL),
+                            )
+                            or ""
+                        },
+                    ): str,
+                    vol.Optional(
+                        H_CONF_SERVER_HOST,
+                        description={
+                            "suggested_value": entry.options.get(
+                                H_CONF_SERVER_HOST,
+                                entry.data.get(H_CONF_SERVER_HOST),
                             )
                             or ""
                         },
@@ -452,13 +466,14 @@ async def _validate_input(user_input: Dict[str, Any]) -> Dict[str, Any]:
     host: str = user_input[CONF_HOST]
     app_id: str = user_input[H_CONF_APP_ID]
     token: str = user_input[CONF_ACCESS_TOKEN]
-    port: Optional[int] = user_input.get(H_CONF_SERVER_PORT)
+    server_host: Optional[str] = user_input.get(H_CONF_SERVER_HOST)
+    server_port: Optional[int] = user_input.get(H_CONF_SERVER_PORT)
     event_url: Optional[str] = user_input.get(H_CONF_SERVER_URL)
 
     if event_url:
         event_url = cv.url(event_url)
 
-    hub = HubitatHub(host, app_id, token, port=port, event_url=event_url)
+    hub = HubitatHub(host, app_id, token, server_host=server_host, server_port=server_port, event_url=event_url)
     await hub.check_config()
 
     return {"label": f"Hubitat ({get_hub_short_id(hub)})", "hub": hub}

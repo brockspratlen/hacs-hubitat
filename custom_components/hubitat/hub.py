@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
     H_CONF_APP_ID,
     H_CONF_HUBITAT_EVENT,
+    H_CONF_SERVER_HOST,
     H_CONF_SERVER_PORT,
     H_CONF_SERVER_SSL_CERT,
     H_CONF_SERVER_SSL_KEY,
@@ -118,9 +119,14 @@ class Hub:
         return get_hub_short_id(self._hub)
 
     @property
-    def port(self) -> Optional[int]:
+    def server_host(self) -> Optional[str]:
+        """The host used for the Hubitat event receiver."""
+        return self._hub.server_host
+
+    @property
+    def server_port(self) -> Optional[int]:
         """The port used for the Hubitat event receiver."""
-        return self._hub.port
+        return self._hub.server_port
 
     @property
     def event_url(self) -> Optional[str]:
@@ -215,7 +221,8 @@ class Hub:
         """Initialize this hub instance."""
         entry = self.config_entry
         url = entry.options.get(H_CONF_SERVER_URL, entry.data.get(H_CONF_SERVER_URL))
-        port = entry.options.get(H_CONF_SERVER_PORT, entry.data.get(H_CONF_SERVER_PORT))
+        server_host = entry.options.get(H_CONF_SERVER_HOST, entry.data.get(H_CONF_SERVER_HOST))
+        server_port = entry.options.get(H_CONF_SERVER_PORT, entry.data.get(H_CONF_SERVER_PORT))
 
         # Previous versions of the integration may have saved a value of "" for
         # server_url with the assumption that a use_server_url flag would control
@@ -234,15 +241,17 @@ class Hub:
         ssl_context = _create_ssl_context(ssl_cert, ssl_key)
 
         _LOGGER.debug(
-            "Initializing Hubitat hub with event server on port %s with SSL %s",
-            port,
+            "Initializing Hubitat hub with event server on %s host using port %s with SSL %s",
+            "default" if server_host is None else server_host,
+            server_port,
             "disabled" if ssl_context is None else "enabled",
         )
         self._hub = HubitatHub(
             self.host,
             self.app_id,
             self.token,
-            port=port,
+            server_host=server_host,
+            server_port=server_port,
             event_url=url,
             ssl_context=ssl_context,
         )
@@ -361,16 +370,27 @@ class Hub:
             await hub.set_host(host)
             _LOGGER.debug("Set hub host to %s", host)
 
-        port = (
+        server_host = (
+            config_entry.options.get(
+                H_CONF_SERVER_HOST,
+                config_entry.data.get(H_CONF_SERVER_HOST),
+            )
+            or None
+        )
+        if server_host != hub.server_host:
+            await hub.set_server_host(server_host)
+            _LOGGER.debug("Set event server host to %s", server_host)
+
+        server_port = (
             config_entry.options.get(
                 H_CONF_SERVER_PORT,
                 config_entry.data.get(H_CONF_SERVER_PORT),
             )
             or 0
         )
-        if port != hub.port:
-            await hub.set_port(port)
-            _LOGGER.debug("Set event server port to %s", port)
+        if server_port != hub.server_port:
+            await hub.set_server_port(server_port)
+            _LOGGER.debug("Set event server port to %s", server_port)
 
         url = config_entry.options.get(
             H_CONF_SERVER_URL, config_entry.data.get(H_CONF_SERVER_URL)
@@ -433,10 +453,15 @@ class Hub:
         _LOGGER.debug("Setting Hubitat host to %s", host)
         self._hub.set_host(host)
 
-    async def set_port(self, port: int) -> None:
+    async def set_server_host(self, server_host: str) -> None:
+        """Set the host that the event listener server will listen on."""
+        _LOGGER.debug("Setting event listener host to %s", server_host)
+        await self._hub.set_server_host(server_host)
+
+    async def set_server_port(self, server_port: int) -> None:
         """Set the port that the event listener server will listen on."""
-        _LOGGER.debug("Setting event listener port to %s", port)
-        await self._hub.set_port(port)
+        _LOGGER.debug("Setting event listener port to %s", server_port)
+        await self._hub.set_server_port(server_port)
 
     async def set_ssl_context(self, ssl_context: Optional[SSLContext]) -> None:
         """Set the SSLContext that the event listener server will use."""
@@ -447,7 +472,7 @@ class Hub:
         await self._hub.set_ssl_context(ssl_context)
 
     async def set_event_url(self, url: Optional[str]) -> None:
-        """Set the port that the event listener server will listen on."""
+        """Set the URL that Hubitat will be configured to send events to."""
         _LOGGER.debug("Setting event server URL to %s", url)
         await self._hub.set_event_url(url)
 

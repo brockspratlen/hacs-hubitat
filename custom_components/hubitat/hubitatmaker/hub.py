@@ -48,7 +48,8 @@ class Hub:
         host: str,
         app_id: str,
         access_token: str,
-        port: Optional[int] = None,
+        server_host: Optional[str] = None,
+        server_port: Optional[int] = None,
         event_url: Optional[str] = None,
         ssl_context: Optional[SSLContext] = None,
     ):
@@ -62,7 +63,9 @@ class Hub:
           The ID of the Maker API instance this interface should use
         access_token:
           The access token for the Maker API instance
-        port:
+        server_host:
+          The interface address to bind to. Defaults to whatever interface the OS uses to connect to the Hubitat.
+        server_port:
           The port to listen on for events (optional). Defaults to a random open port.
         event_url:
           The URL that Hubitat should send events to (optional). Defaults the server's
@@ -81,8 +84,9 @@ class Hub:
         self._hsm_status: Optional[str] = None
         self._hsm_supported = None
 
-        self.event_url = _get_event_url(port, event_url)
-        self.port = _get_event_port(port, event_url)
+        self.event_url = _get_event_url(server_port, event_url)
+        self.server_host = server_host
+        self.server_port = _get_event_port(server_port, event_url)
         self.app_id = app_id
         self.token = access_token
         self.mac = ""
@@ -269,13 +273,24 @@ class Hub:
         self.base_url = f"{self.scheme}://{self.host}"
         self.api_url = f"{self.base_url}/apps/api/{self.app_id}"
 
-    async def set_port(self, port: int) -> None:
+    async def set_server_host(self, server_host: Optional[str]) -> None:
+        """Set the host that the event listener server will listen on.
+
+        Setting this will stop and restart the event listener server.
+        """
+        self.server_host = server_host
+        _LOGGER.info("Setting event listener server host to %s", server_host)
+        if self._server:
+            self._server.stop()
+        await self._start_server()
+
+    async def set_server_port(self, server_port: int) -> None:
         """Set the port that the event listener server will listen on.
 
         Setting this will stop and restart the event listener server.
         """
-        self.port = port
-        _LOGGER.info("Setting port to %s", port)
+        self.server_port = server_port
+        _LOGGER.info("Setting event listener server port to %s", server_port)
         if self._server:
             self._server.stop()
         await self._start_server()
@@ -460,12 +475,15 @@ class Hub:
         # First, figure out what address to listen on. Open a connection to
         # the Hubitat hub and see what address it used. This assumes this
         # machine and the Hubitat hub are on the same network.
-        with _open_socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect((self.host, 80))
-            address = s.getsockname()[0]
+        if self.server_host:
+            address = self.server_host
+        else:
+            with _open_socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((self.host, 80))
+                address = s.getsockname()[0]
 
         self._server = server.create_server(
-            self._process_event, address, self.port or 0, self.ssl_context
+            self._process_event, address, self.server_port or 0, self.ssl_context
         )
         self._server.start()
         _LOGGER.debug(
@@ -488,24 +506,24 @@ def _open_socket(*args: Any, **kwargs: Any) -> Iterator[socket.socket]:
         s.close()
 
 
-def _get_event_port(port: Optional[int], event_url: Optional[str]) -> Optional[int]:
+def _get_event_port(server_port: Optional[int], event_url: Optional[str]) -> Optional[int]:
     """Given an optional port and event URL, return the event port"""
-    if port is not None:
-        return port
+    if server_port is not None:
+        return server_port
     if event_url is not None:
         u = urlparse(event_url)
         return u.port
     return None
 
 
-def _get_event_url(port: Optional[int], event_url: Optional[str]) -> Optional[str]:
+def _get_event_url(server_port: Optional[int], event_url: Optional[str]) -> Optional[str]:
     """Given an optional port and event URL, return a complete event URL"""
     if event_url is not None:
         u = urlparse(event_url)
-        if u.port is None and port is not None:
+        if u.port is None and server_port is not None:
             return ParseResult(
                 scheme=u.scheme,
-                netloc=f"{u.hostname}:{port}",
+                netloc=f"{u.hostname}:{server_port}",
                 path=u.path,
                 params=u.params,
                 query=u.query,
